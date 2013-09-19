@@ -99,7 +99,7 @@ void execute(int childargc, char *childargv[]){
 
     int i;
     for(i = 0; i < childargc; i++){
-      if(*childargv[i] == '>'){
+      if(strcmp(childargv[i], ">") == 0){
 	char *path = childargv[i+1];
 	freopen(path, "w", stdout);
 	childargv[i] = NULL;
@@ -109,7 +109,17 @@ void execute(int childargc, char *childargv[]){
     }
 
     for(i = 0; i < childargc; i++){
-      if(*childargv[i] == '<'){
+      if(strcmp(childargv[i], "2>") == 0){
+	char *path = childargv[i+1];
+	freopen(path, "r", stderr);
+	childargv[i] = NULL;
+	childargc -= 2;
+	break;
+      }
+    }
+
+    for(i = 0; i < childargc; i++){
+      if(strcmp(childargv[i], "<") == 0){
 	char *path = childargv[i+1];
 	freopen(path, "r", stdin);
 	childargv[i] = NULL;
