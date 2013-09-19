@@ -137,7 +137,7 @@ int main(int argc, char*argv[]) {
   USE(argv);
   setvbuf(stdout, NULL, _IONBF, 0); 
   
-  char *username = getlogin();
+  char *username = getenv("USER");
   char hostname[64];
   gethostname(hostname, 64);
 
