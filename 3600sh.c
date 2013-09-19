@@ -76,6 +76,14 @@ void free_args(int argc, char *argv[]){
 }
 
 void execute(int childargc, char *childargv[]){
+
+  // check if this should be a background process
+  int bg = 0;
+  if (*childargv[childargc-1] == '&'){
+    bg = 1;
+    childargv[childargc-1] = NULL;
+    childargc--;
+  }
   
   pid_t childpid;
 
@@ -87,13 +95,37 @@ void execute(int childargc, char *childargv[]){
     perror("FORK FAILED");
   }
   if (childpid == 0){
-    int s = execvp(childargv[0], childargv);
-    if (s == -1){
-      perror("exec failed");
+    
+
+    int i;
+    for(i = 0; i < childargc; i++){
+      if(*childargv[i] == '>'){
+	char *path = childargv[i+1];
+	freopen(path, "w", stdout);
+	childargv[i] = NULL;
+	childargc -= 2;
+	break;
+      }
     }
+
+    for(i = 0; i < childargc; i++){
+      if(*childargv[i] == '<'){
+	char *path = childargv[i+1];
+	freopen(path, "r", stdin);
+	childargv[i] = NULL;
+	childargc -= 2;
+	break;
+      }
+    }
+
+    execvp(childargv[0], childargv);
+    
+    // This code only runs if exec fails. Print error and exit
+    perror("exec failed");
     exit(1);
   }
-  else
+  
+  if (bg == 0)
     waitpid(childpid, NULL, 0);  /* wait until child process finishes */
 }
 
