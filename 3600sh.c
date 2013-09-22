@@ -1,4 +1,4 @@
-/**
+/*
  * CS3600, Spring 2013
  * Project 1 Starter Code
  * (c) 2013 Alan Mislove
@@ -14,19 +14,40 @@
 
 int MAXLINE = 80;
 
+char *strip_n(char *old) {
+  char *new = (char *) calloc(strlen(old), sizeof(char));
+  unsigned int i;
+  for(i = 0; i < strlen(old); i++) {
+    if((old[i] == '\\' && old[i+1] == 'n') || (old[i] == '\0')) {
+	new[i] = '\0';
+	break;
+    } else {
+	new[i] = old[i];
+    }
+  }
+  
+  char *saved_arg = (char *) calloc(strlen(new) + 1, sizeof(char));
+  strcpy(saved_arg, new);
+
+  return saved_arg;
+}
+  
 
 char *get_argument(char *cmd, int i){
   char arg[30];
   int j = 0;
   while(cmd[i] != ' ' && cmd[i] != '\0'){
-    arg[j] = cmd[i];
-    i++;
-    j++;
+     
+     arg[j] = cmd[i];
+     i++;
+     j++;
+     
   }
   
   if( arg[j-1] == '\n')
     j--;
-  arg[j] = '\0';  
+  arg[j] = '\0';
+    
   char *saved_arg = (char *) calloc(strlen(arg) + 1, sizeof(char));
   strcpy(saved_arg, arg);
 
@@ -42,8 +63,8 @@ int getargs(char cmd[], char *argv[]){
     
   char *f = fgets(cmd, MAXLINE, stdin);
   if(f == NULL && feof(stdin)){
-    printf("Couldn't read from stdin");
-    exit(1);
+    //printf("Couldn't read from stdin");
+    do_exit();
   }
 
   int i = 0;
@@ -56,11 +77,13 @@ int getargs(char cmd[], char *argv[]){
     }
     if (cmd[i] == '\0' || cmd[i] == '\n')
       break;
+
     char *arg =get_argument(cmd, i);
 
     argv[arg_num] = arg;
     arg_num++;
     i += strlen(arg);
+      
   }
   
   argv[arg_num] = NULL;
@@ -110,8 +133,8 @@ void execute(int childargc, char *childargv[]){
 
     for(i = 0; i < childargc; i++){
       if(strcmp(childargv[i], "2>") == 0){
-	char *path = childargv[i+1];
-	freopen(path, "r", stderr);
+	char *path = strip_n(childargv[i+1]);
+	freopen(path, "w", stderr);
 	childargv[i] = NULL;
 	childargc -= 2;
 	break;
@@ -131,7 +154,8 @@ void execute(int childargc, char *childargv[]){
     execvp(childargv[0], childargv);
     
     // This code only runs if exec fails. Print error and exit
-    perror("exec failed");
+    printf("Error: Command not found.\n");
+    //perror("exec failed");
     exit(1);
   }
   
@@ -171,6 +195,9 @@ int main(int argc, char*argv[]) {
     }
 
     execute(childargc, childargv);
+
+    if (feof(stdin))
+      do_exit();
   }
 
   return 0;
