@@ -131,7 +131,8 @@ void execute(int childargc, char *childargv[]){
     execvp(childargv[0], childargv);
     
     // This code only runs if exec fails. Print error and exit
-    perror("exec failed");
+    printf("Error: Command not found.\n");
+    //perror("exec failed");
     exit(1);
   }
   
@@ -170,7 +171,9 @@ int main(int argc, char*argv[]) {
       do_exit();
     }
 
-    execute(childargc, childargv);
+    execute(childargc, childargv);\
+    if (feof(stdin) )
+      do_exit();
   }
 
   return 0;
