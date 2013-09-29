@@ -98,7 +98,22 @@ void free_args(int argc, char *argv[]){
   }
 }
 
+
+/**
+ * Take a valid command (as far as our shell is concerned) and apply
+ * all the IO redirection.
+ *
+ * The given childargv is a malloced list of commands and arguments
+ * which will be passed to execvp. So if any IO redirects are found,
+ * they must be removed. This is done by putting a NULL into the array
+ * at the end of the command meant to be passed to execvp.
+ *
+ * This is only ever called from the child process, so we don't need
+ * to free deleted arguments. They will be cleared when this child
+ * execs or exits.
+ */
 int parse_io_redirects(int childargc, char *childargv[]){
+  // keep track of how many commands to remove from end
   int num_of_redirects = 0;
   
   int i;
@@ -120,16 +135,25 @@ int parse_io_redirects(int childargc, char *childargv[]){
     }
   }
 
+  // Mark the end of the command, minus IO redirect commands (for
+  // execvp)
   childargc -= (num_of_redirects * 2);
-
   childargv[childargc] = NULL;
 
-  return childargc;
+  return 0;
 }
 
+
+/**
+ * execute is where the shell process is forked, and the command is
+ * executed. Within the child fork branch is also where the IO
+ * redirection is parsed and performed.
+ *
+ * At this point childargv must have been parsed, escaped characters
+ * put in place, and all checked for validity.
+ */
 void execute(int childargc, char *childargv[]){
 
-  
   pid_t childpid;
 
   childpid = fork();
@@ -137,20 +161,24 @@ void execute(int childargc, char *childargv[]){
     perror("FORK FAILED");
   }
   if (childpid == 0){
+    // child process branch
 
+    // delete background procces command before exec
     if (*childargv[childargc-1] == '&'){
       childargv[childargc-1] = NULL;
       childargc--;
     }
     
+    // Make copies of the original file descriptors in case of exec
+    // error
     int orig_stdin, orig_stdout, orig_stderr;
     orig_stdin = dup(0);
     orig_stdout = dup(1);
     orig_stderr = dup(2);
 
-    
     parse_io_redirects(childargc, childargv);
 
+    // Magic hands!
     execvp(childargv[0], childargv);
     
     // if anything executes past this point, execvp has failed. Reset
@@ -166,9 +194,11 @@ void execute(int childargc, char *childargv[]){
     exit(1);
   }
   
-  // check if this should be a background process
+  // Parent process branch
+
+  // If no background process flag, wait for child to finish
   if (*childargv[childargc-1] != '&')
-    waitpid(childpid, NULL, 0);  /* wait until child process finishes */
+    waitpid(childpid, NULL, 0);
 }
 
 
