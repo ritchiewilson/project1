@@ -98,68 +98,76 @@ void free_args(int argc, char *argv[]){
   }
 }
 
+int parse_io_redirects(int childargc, char *childargv[]){
+  int num_of_redirects = 0;
+  
+  int i;
+  for(i = 0; i < childargc; i++){
+    if(strcmp(childargv[i], "<") == 0){
+      char *path = childargv[i+1];
+      freopen(path, "r", stdin);
+      num_of_redirects++;
+    }
+    else if(strcmp(childargv[i], ">") == 0){
+      char *path = childargv[i+1];
+      freopen(path, "w", stdout);
+      num_of_redirects++;
+    }
+    else if(strcmp(childargv[i], "2>") == 0){
+      char *path = childargv[i+1];
+      freopen(path, "w", stderr);
+      num_of_redirects++;
+    }
+  }
+
+  childargc -= (num_of_redirects * 2);
+
+  childargv[childargc] = NULL;
+
+  return childargc;
+}
+
 void execute(int childargc, char *childargv[]){
 
-  // check if this should be a background process
-  int bg = 0;
-  if (*childargv[childargc-1] == '&'){
-    bg = 1;
-    childargv[childargc-1] = NULL;
-    childargc--;
-  }
   
   pid_t childpid;
-
-  childargc++;
-  childargc--;
 
   childpid = fork();
   if (childpid == -1){
     perror("FORK FAILED");
   }
   if (childpid == 0){
+
+    if (*childargv[childargc-1] == '&'){
+      childargv[childargc-1] = NULL;
+      childargc--;
+    }
     
+    int orig_stdin, orig_stdout, orig_stderr;
+    orig_stdin = dup(0);
+    orig_stdout = dup(1);
+    orig_stderr = dup(2);
 
-    int i;
-    for(i = 0; i < childargc; i++){
-      if(strcmp(childargv[i], ">") == 0){
-	char *path = childargv[i+1];
-	freopen(path, "w", stdout);
-	childargv[i] = NULL;
-	childargc -= 2;
-	break;
-      }
-    }
-
-    for(i = 0; i < childargc; i++){
-      if(strcmp(childargv[i], "2>") == 0){
-	char *path = strip_n(childargv[i+1]);
-	freopen(path, "w", stderr);
-	childargv[i] = NULL;
-	childargc -= 2;
-	break;
-      }
-    }
-
-    for(i = 0; i < childargc; i++){
-      if(strcmp(childargv[i], "<") == 0){
-	char *path = childargv[i+1];
-	freopen(path, "r", stdin);
-	childargv[i] = NULL;
-	childargc -= 2;
-	break;
-      }
-    }
+    
+    parse_io_redirects(childargc, childargv);
 
     execvp(childargv[0], childargv);
     
-    // This code only runs if exec fails. Print error and exit
-    printf("Error: Command not found.\n");
-    //perror("exec failed");
+    // if anything executes past this point, execvp has failed. Reset
+    // the IOs, print an Error and exit
+    dup2(orig_stdin, 0);
+    dup2(orig_stdout, 1);
+    dup2(orig_stderr, 2);    
+
+    if (errno == EACCES)
+      printf("Error: Permission denied.\n");
+    else
+      printf("Error: Command not found.\n");
     exit(1);
   }
   
-  if (bg == 0)
+  // check if this should be a background process
+  if (*childargv[childargc-1] != '&')
     waitpid(childpid, NULL, 0);  /* wait until child process finishes */
 }
 
