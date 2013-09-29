@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 
+/* Run a fibonacci algo which takes exponential time. */
 int fib(int i){
   if (i == 0)
     return 0;
@@ -17,9 +18,8 @@ int fib(int i){
   
 }
 
-
-int main(){
-  
+/* I waste the CPU's time */
+int main(){  
   int i = fib(41);
   printf("Fib is %d\n", i);
   return 0;
