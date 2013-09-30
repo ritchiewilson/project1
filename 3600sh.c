@@ -37,8 +37,8 @@ char *strip_n(char *old) {
 char *handle_escape_char(char *cmd) {
   
   // Allocate 128 bytes for the new cmd
-  char *new_cmd = malloc(BUFFER_LEN);
-  unsigned int curr_length = BUFFER_LEN;
+  int len = strlen(cmd) + 1;
+  char *new_cmd = calloc(len, sizeof(char));
 
   // Indices for parsing cmd (i) & new_cmd (j)
   unsigned int i = 0;
@@ -51,81 +51,36 @@ char *handle_escape_char(char *cmd) {
   while(cmd[i] != '\0')
   { 
     // If escape character is found
-    if(cmd[i] == '\\')
-    {
-      i++;
-      switch(cmd[i])
-      {
+    if(cmd[i] == '\\'){
+      switch(cmd[i+1]){
 	case '\\':
 	  c = '\\';
+	  i++;
 	  break;
 	case ' ':
 	  c = '\\';  
-   	  new_cmd[j++] = c;
-    	  if(j == curr_length)
-    	  {
-	    curr_length = j+BUFFER_LEN;
-    	    new_cmd = realloc(new_cmd, BUFFER_LEN);
-    	  }
-    	  //i++;
-	  c = ' ';
 	  break;
 	case 't':
 	  c = '\t';
-   	  //new_cmd[j++] = c;
-    	  //if(j == curr_length)
-    	  //{
-	   // curr_length = j+BUFFER_LEN;
-    	   // new_cmd = realloc(new_cmd, BUFFER_LEN);
-    	  //}
-    	  //i++;
-	  //c = 't';
+	  i++;
 	  break;
 	case '&':
 	  c = '&';
+	  i++;
 	  break;
-	// Print error message if unlisted escape sequence is used
+	// If it was none of these, return NULL (error)
         default:
-	  printf("Error: Unrecognized escape sequence.\n");
-	  do_exit();
+	  return NULL;
 	  break;
       } 
     }
-    // If ampersand not following an escape char
-    else if(cmd[i] == '&')    
-    {  
-       unsigned int k = i;			// New index (preserves i for later)
-       k++;
-       while (cmd[k] != '\0' && cmd[k] != '\n')	// Parse until NULL or newline
-       {
-	  if(cmd[k] == ' ')		// Keep going if char is space
-	  {
-	    k++;
-	  }
-	  else				// Break if it is any other char
-	  {
-	    printf("Error: Invalid syntax.\n");
-  	    do_exit();
-          }
-	}
-	c = cmd[i];
-    }
     else if(cmd[i] == '\t')
-    {
       c = ' ';
-    }
     // If no escape char, store the next char in cmd to c 
     else
-    {
       c = cmd[i];
-    }
     // Add c to new_cmd, check if j reached BUFFER_LEN, if so allocate mem
     new_cmd[j++] = c;
-    if(j == curr_length)
-    {
-	curr_length = j+BUFFER_LEN;
-    	new_cmd = realloc(new_cmd, BUFFER_LEN);
-    }
     i++;
   }
 
@@ -159,16 +114,8 @@ char *get_argument(char *cmd, int i){
 	i++;    
 	ESC_SPACES++;
     }
-    //else if(cmd[i] == '\\' && cmd[i+1] == 't')
-    //{
-	//c = '\t';
-	//i++;
-	//ESC_SPACES++;
-    //} 
     else
-    {
 	c = cmd[i];
-    }
     // Store the char at arg[j]
     arg[j++] = c;
     // Check if arg has reached BUFFER_LEN, and allocate more mem if needed
@@ -185,11 +132,79 @@ char *get_argument(char *cmd, int i){
     j--;
   arg[j] = '\0';
     
-  char *saved_arg = (char *) calloc(strlen(arg) + 1, sizeof(char));
-  strcpy(saved_arg, arg);
-
-  return saved_arg;
+  return arg;
 }
+
+
+/**
+ * This checks the values of the next two arguments after an IO
+ * redirection to test if the syntax is valid. To be valid, the next
+ * argument CANNOT be NULL, &, <, >, or 2>. Additionally the argument
+ * after that MUST be NULL, &, <, >, or 2>.
+ *
+ * Returns 0 if valid, -1 otherwise.
+ */
+int valid_next_two_args(char *arg1, char *arg2){
+  if ( arg1 == NULL )
+    return -1;
+
+  if ( strcmp(arg1, "&") == 0 )
+    return -1;
+  if ( strcmp(arg1, "<") == 0 )
+    return -1;
+  if ( strcmp(arg1, ">") == 0 )
+    return -1;
+  if ( strcmp(arg1, "2>") == 0 )
+    return -1;
+
+  if ( (arg2 == NULL ) || 
+       ( strcmp(arg2, "&") == 0 ) || ( strcmp(arg2, "<") == 0 ) ||
+       ( strcmp(arg2, ">") == 0 ) || ( strcmp(arg2, "2>") == 0 ) )
+    return 0;
+  return -1;
+}
+
+int test_if_valid_command(int argc, char *argv[]){
+
+  // if any of these aguments is found twice, invalid command
+  int in = 0; // stdin < found
+  int out = 0; // stdout > found
+  int err = 0; // stderr 2> found
+
+  int i;
+  for (i = 0; i < argc; i++){
+    char *arg = argv[i];
+    if ( strcmp(arg, "&") == 0){
+      // no arguments can come after &
+      if( argv[i+1] == NULL )
+	return 0;
+      return -1;
+    }
+    if ( strcmp(arg, "<") == 0){
+      if(in)
+	return -1;
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      in = 1;
+    }
+    if ( strcmp(arg, ">") == 0){
+      if(out)
+	return -1;
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      out = 1;
+    }
+    if ( strcmp(arg, "2>") == 0){
+      if(err)
+	return -1;
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      out = 1;
+    }
+  }
+  return 0;
+}
+
 
 /**
  * Gets user input. Stores raw input into cmd. Split arguments in an
@@ -225,8 +240,10 @@ int getargs(char *argv[]){
     cmd[j] = '\0';
   }	
   
-  char *new_cmd = malloc(sizeof cmd);
+  char *new_cmd;
   new_cmd = handle_escape_char(cmd);
+  if (new_cmd == NULL)
+    return -1; // bad escpae sequence
 
   int i = 0;
   int arg_num = 0;
@@ -254,11 +271,16 @@ int getargs(char *argv[]){
     ESC_SPACES = 0;   
   }
 
+
   // Free unused cmd; args are now stored in argv
   free(cmd);
   cmd = NULL;
 
   argv[arg_num] = NULL;
+
+  int valid = test_if_valid_command(arg_num, argv);
+  if (valid == -1)
+    return -2; // error code for invalid command
 
   return arg_num;
 }
@@ -286,6 +308,8 @@ void free_args(int argc, char *argv[]){
  * This is only ever called from the child process, so we don't need
  * to free deleted arguments. They will be cleared when this child
  * execs or exits.
+ *
+ * Returns -1 on any error opening a file.
  */
 int parse_io_redirects(int childargc, char *childargv[]){
   // keep track of how many commands to remove from end
@@ -376,19 +400,9 @@ void execute(int childargc, char *childargv[]){
       printf("Error: Command not found.\n");
     exit(1);
   }
-  // Parent process branch
-  if (childpid > 0) 
-  {  
-    // If no background process flag, wait for child to finish
-    if (*childargv[childargc-1] != '&')
-    {
-      waitpid(childpid, NULL, 0);
-    }
-    else
-    {
-      return;
-    }
-  }
+  // If no background process flag, wait for child to finish
+  if (*childargv[childargc-1] != '&')
+    waitpid(childpid, NULL, 0);
   return;
 }
 
@@ -414,15 +428,22 @@ int main(int argc, char*argv[]) {
     char cur_dir[100];
     getcwd(cur_dir, 100);
     printf("%s@%s:%s> ", username, hostname, cur_dir);
-      
-    // You should read in the command and execute it here
+
+    // Get User Input
     childargc = getargs(childargv);
 
     if ( childargc > 0 && strcmp(childargv[0], "exit") == 0){
       do_exit();
     }
-
-    execute(childargc, childargv);
+    else if ( childargc == -1 ){
+      printf("Error: Unrecognized escape sequence.\n");
+    }
+    else if ( childargc == -2 ){
+      printf("Error: Invalid syntax.\n");
+    }
+    else{
+      execute(childargc, childargv);
+    }
 
     if (feof(stdin))
       do_exit();
