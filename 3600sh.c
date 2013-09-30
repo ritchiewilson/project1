@@ -12,29 +12,22 @@
 
 #define USE(x) (x) = (x)
 
-int MAXLINE = 80;
-unsigned int BUFFER_LEN = 512;
 int ESC_SPACES = 0;
 
-char *strip_n(char *old) {
-  char *new = (char *) calloc(strlen(old), sizeof(char));
-  unsigned int i;
-  for(i = 0; i < strlen(old); i++) {
-    if((old[i] == '\\' && old[i+1] == 'n') || (old[i] == '\0')) {
-	new[i] = '\0';
-	break;
-    } else {
-	new[i] = old[i];
-    }
-  }
-  
-  char *saved_arg = (char *) calloc(strlen(new) + 1, sizeof(char));
-  strcpy(saved_arg, new);
 
-  return saved_arg;
-}
-
-char *handle_escape_char(char *cmd) {
+/**
+ * Takes the raw user input and converts escape sequences to their
+ * intended values. This is the first step of input processing.
+ *
+ * Escaped spaces are not altered here, but are left as the two chars
+ * '\' and ' '. This is because they are more easily handled later
+ * when spliting this string into an array of arguments.
+ *
+ * Returns a malloced char* on success.
+ *
+ * Returns NULL pointer for invalid escape characters.
+ */
+char *convert_escaped_chars(char *cmd) {
   
   // Allocate 128 bytes for the new cmd
   int len = strlen(cmd) + 1;
@@ -48,17 +41,19 @@ char *handle_escape_char(char *cmd) {
   char c;
 
   // Parse raw command string and look for escape characters
-  while(cmd[i] != '\0')
-  { 
+  while(cmd[i] != '\0'){ 
+    c = cmd[i];
+    if(c == '\t') // just treat tabs as spaces
+      c = ' ';
     // If escape character is found
-    if(cmd[i] == '\\'){
+    if(c == '\\'){
       switch(cmd[i+1]){
 	case '\\':
 	  c = '\\';
 	  i++;
 	  break;
 	case ' ':
-	  c = '\\';  
+	  c = '\\';  // need to keep in this char for when splitting cmd into arg array
 	  break;
 	case 't':
 	  c = '\t';
@@ -70,16 +65,12 @@ char *handle_escape_char(char *cmd) {
 	  break;
 	// If it was none of these, return NULL (error)
         default:
+	  free(new_cmd);
 	  return NULL;
 	  break;
-      } 
+      }
     }
-    else if(cmd[i] == '\t')
-      c = ' ';
-    // If no escape char, store the next char in cmd to c 
-    else
-      c = cmd[i];
-    // Add c to new_cmd, check if j reached BUFFER_LEN, if so allocate mem
+    // Add c to new_cmd
     new_cmd[j++] = c;
     i++;
   }
@@ -94,11 +85,8 @@ char *handle_escape_char(char *cmd) {
  */
 char *get_argument(char *cmd, int i){
   
-  unsigned int max_len = BUFFER_LEN;    // To be deleted
-  unsigned int curr_len = 0;		// Size for the receiving array
-
-  char *arg = malloc(BUFFER_LEN);       // Allocating 128bytes for receiving array
-  curr_len = BUFFER_LEN;                // Correct the size for receiving array to 128
+  unsigned int curr_len = 512;		// Size for the receiving array
+  char *arg = malloc(curr_len);       // Allocating 128bytes for receiving array
   
   char c;
 
@@ -116,12 +104,12 @@ char *get_argument(char *cmd, int i){
     }
     else
 	c = cmd[i];
-    // Store the char at arg[j]
+    // Store the string in the return array
     arg[j++] = c;
-    // Check if arg has reached BUFFER_LEN, and allocate more mem if needed
+    // Check if arg has reached the end of allocated space
     if(j == curr_len)
     {
-	curr_len = j+max_len;
+	curr_len += 512;
 	arg = realloc(arg, curr_len);
     }
     i++;
@@ -145,58 +133,66 @@ char *get_argument(char *cmd, int i){
  * Returns 0 if valid, -1 otherwise.
  */
 int valid_next_two_args(char *arg1, char *arg2){
-  if ( arg1 == NULL )
+  // Test if the first argument is invalid
+  if ( ( arg1 == NULL ) ||
+       ( strcmp(arg1, "&") == 0 ) || ( strcmp(arg1, "<") == 0 ) ||
+       ( strcmp(arg1, ">") == 0 ) || ( strcmp(arg1, "2>") == 0 ))
     return -1;
 
-  if ( strcmp(arg1, "&") == 0 )
-    return -1;
-  if ( strcmp(arg1, "<") == 0 )
-    return -1;
-  if ( strcmp(arg1, ">") == 0 )
-    return -1;
-  if ( strcmp(arg1, "2>") == 0 )
-    return -1;
-
+  // test if the second argument is valid
   if ( (arg2 == NULL ) || 
        ( strcmp(arg2, "&") == 0 ) || ( strcmp(arg2, "<") == 0 ) ||
        ( strcmp(arg2, ">") == 0 ) || ( strcmp(arg2, "2>") == 0 ) )
     return 0;
+
+  // otherwise return 'invalid'
   return -1;
 }
 
-int test_if_valid_command(int argc, char *argv[]){
+/**
+ * Tests the given array of arguments to see if this should throw an
+ * "Invalid syntax" error.
+ *
+ * The only invalid commands we are concerned with are 1) arguments
+ * after an '&', 2) arguments after IO redirections other than '&', 3)
+ * IO redirects without a corresponding file argument and 4) setting
+ * any redirect more that once.
+ *
+ * Returns 0 for valid, -1 otherwise
+ */
+int test_if_valid_syntax(int argc, char *argv[]){
 
   // if any of these aguments is found twice, invalid command
-  int in = 0; // stdin < found
-  int out = 0; // stdout > found
-  int err = 0; // stderr 2> found
+  int in = 0; // stdin (<) 
+  int out = 0; // stdout (>) 
+  int err = 0; // stderr (2>)
 
   int i;
   for (i = 0; i < argc; i++){
     char *arg = argv[i];
     if ( strcmp(arg, "&") == 0){
-      // no arguments can come after &
+      // & must be the last argument
       if( argv[i+1] == NULL )
 	return 0;
       return -1;
     }
     if ( strcmp(arg, "<") == 0){
       if(in)
-	return -1;
+	return -1;  // another < command was already found
       if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
 	return -1;
       in = 1;
     }
     if ( strcmp(arg, ">") == 0){
       if(out)
-	return -1;
+	return -1;  // another > command was already found
       if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
 	return -1;
       out = 1;
     }
     if ( strcmp(arg, "2>") == 0){
       if(err)
-	return -1;
+	return -1;  // another 2> command was already found
       if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
 	return -1;
       out = 1;
@@ -207,17 +203,19 @@ int test_if_valid_command(int argc, char *argv[]){
 
 
 /**
- * Gets user input. Stores raw input into cmd. Split arguments in an
- * array of strings, and stores them in argv. Returns the number of
- * arguments, or -1 for an error.
+ * 1) Gets and stores raw user input 2) Parses input to convert
+ * escaped characters 3) Splits the result into an array of arguments
+ * which are 4) stored into them in argv. 
+ *
+ * Returns the number of arguments in argv on success
+ * Returns -1 for an invalid escape sequence error.
+ * Returns -2 for an invalid syntax error
  */
-int getargs(char *argv[]){
+int get_args(char *argv[]){
     
-  unsigned int len_max = 128;
-  unsigned int curr_len = 0;
-
-  char *cmd = malloc(len_max * sizeof(char));
-  curr_len = len_max;
+  // create a buffer for raw user input
+  unsigned int curr_len = 128;
+  char *cmd = calloc(curr_len, sizeof(char));
 
   if(cmd != NULL)
   {
@@ -229,10 +227,10 @@ int getargs(char *argv[]){
     {
 	cmd[j++] = (char)c;
 
-	//If j reached the end of the current string, allocate more space
+	// allocate more space if needed
 	if(j == curr_len)
 	{
-	  curr_len = j+len_max;
+	  curr_len += 128;
 	  cmd = realloc(cmd, curr_len);
 	}
     }
@@ -241,57 +239,62 @@ int getargs(char *argv[]){
   }	
   
   char *new_cmd;
-  new_cmd = handle_escape_char(cmd);
+  new_cmd = convert_escaped_chars(cmd);
+
+  // raw user input is no longer needed
+  free(cmd);
+
+  // A NULL indicates a bad escpae sequence. Return error
   if (new_cmd == NULL)
-    return -1; // bad escpae sequence
+    return -1;
 
   int i = 0;
   int arg_num = 0;
 
-  //Parse raw string of command until NULL
+  // Convert command string into an array of arguments
   while(new_cmd[i] != '\0' && new_cmd[i] != '\n'){
-    
-    //Ignore extra spaces
+    // Move through the command to the start of the next argument
     while (new_cmd[i] == ' '){
       i ++;
       if (new_cmd[i] == '\0' || new_cmd[i] == '\n')
         break;
     }
-    //Break if end is reached
     if (new_cmd[i] == '\0' || new_cmd[i] == '\n')
       break;
     
-    //Extract arg pointed to by i from cmd
+    // Get the next argument, which is in new_cmd and starts at i
     char *arg =get_argument(new_cmd, i);
 
     argv[arg_num] = arg;
     arg_num++;
+
+    // get_argument moved forward in the string the length of the
+    // argument plus any escaped spaces it handled.
     i += strlen(arg);
     i += ESC_SPACES;
     ESC_SPACES = 0;   
   }
-
-
-  // Free unused cmd; args are now stored in argv
-  free(cmd);
-  cmd = NULL;
-
+  // NULL indicates end of arguments for execvp
   argv[arg_num] = NULL;
 
-  int valid = test_if_valid_command(arg_num, argv);
-  if (valid == -1)
-    return -2; // error code for invalid command
+  // args are now stored in argv, so we don't need the string
+  free(new_cmd);
+
+
+  if ( test_if_valid_syntax(arg_num, argv) == -1 )
+    return -2;
 
   return arg_num;
 }
 
 /**
- * Free all arguments in argv
+ * Before each user command is executed, free the malloced arguments
+ * from the previous user command.
  */
-void free_args(int argc, char *argv[]){
+void free_args(int childargc, char *childargv[]){
   int i;
-  for (i = 0; i < argc; i++){
-    free(argv[i]);
+  for (i = 0; i < childargc; i++){
+    free(childargv[i]);
   }
 }
 
@@ -309,9 +312,10 @@ void free_args(int argc, char *argv[]){
  * to free deleted arguments. They will be cleared when this child
  * execs or exits.
  *
- * Returns -1 on any error opening a file.
+ * Returns 0 on success
+ * Returns -1 on any error opening a file
  */
-int parse_io_redirects(int childargc, char *childargv[]){
+int setup_io_redirects(int childargc, char *childargv[]){
   // keep track of how many commands to remove from end
   int num_of_redirects = 0;
   int i;
@@ -358,9 +362,6 @@ void execute(int childargc, char *childargv[]){
   pid_t childpid;
 
   childpid = fork();
-  if (childpid == -1){
-    perror("FORK FAILED");
-  }
   if (childpid == 0){
     // child process branch
 
@@ -377,7 +378,7 @@ void execute(int childargc, char *childargv[]){
     orig_stdout = dup(1);
     orig_stderr = dup(2);
 
-    if( parse_io_redirects(childargc, childargv) == -1){
+    if( setup_io_redirects(childargc, childargv) == -1){
       dup2(orig_stdin, 0);
       dup2(orig_stdout, 1);
       dup2(orig_stderr, 2);    
@@ -388,8 +389,8 @@ void execute(int childargc, char *childargv[]){
     // Magic hands!
     execvp(childargv[0], childargv);
     
-    // if anything executes past this point, execvp has failed. Reset
-    // the IOs, print an Error and exit
+    // if anything executes past this point, execvp has failed. Restore
+    // the original IOs, print an Error and exit
     dup2(orig_stdin, 0);
     dup2(orig_stdout, 1);
     dup2(orig_stderr, 2);    
@@ -415,23 +416,27 @@ int main(int argc, char*argv[]) {
   setvbuf(stdout, NULL, _IONBF, 0); 
   
   char *username = getenv("USER");
-  char hostname[64];
-  gethostname(hostname, 64);
+  char hostname[128];
+  gethostname(hostname, 128);
 
-  int MAXARGS = 50;
-  char *childargv[MAXARGS]; // split user input into args
+  int MAXARGS = 150;
+  char *childargv[MAXARGS];
   int childargc = 0;
 
   // Main loop that reads a command and executes it
   while (1) {
+    // Always free whatever values may still be in childargc
     free_args(childargc, childargv);
+
+    // print current directoy
     char cur_dir[100];
     getcwd(cur_dir, 100);
     printf("%s@%s:%s> ", username, hostname, cur_dir);
 
     // Get User Input
-    childargc = getargs(childargv);
+    childargc = get_args(childargv);
 
+    // From user the given user input, exit, print an error, or execute
     if ( childargc > 0 && strcmp(childargv[0], "exit") == 0){
       do_exit();
     }
