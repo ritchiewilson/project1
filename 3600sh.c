@@ -3,9 +3,9 @@
  * Project 1 Starter Code
  * (c) 2013 Alan Mislove
  *
- * You should use this (very simple) starter code as a basis for 
- * building your shell.  Please see the project handout for more
- * details.
+ * Ritchie Wilson
+ * Ryan Strassberger
+ *
  */
 
 #include "3600sh.h"
@@ -15,189 +15,65 @@
 int ESC_SPACES = 0;
 
 
+int get_user_input(char *argv[]);
+char *convert_escaped_chars(char *cmd);
+char *get_argument(char *cmd, int i);
+int test_if_valid_syntax(int argc, char *argv[]);
+int valid_next_two_args(char *arg1, char *arg2);
+int setup_io_redirects(int childargc, char *childargv[]);
+void execute(int childargc, char *childargv[]);
+void free_args(int childargc, char *childargv[]);
+
+
 /**
- * Takes the raw user input and converts escape sequences to their
- * intended values. This is the first step of input processing.
- *
- * Escaped spaces are not altered here, but are left as the two chars
- * '\' and ' '. This is because they are more easily handled later
- * when spliting this string into an array of arguments.
- *
- * Returns a malloced char* on success.
- *
- * Returns NULL pointer for invalid escape characters.
+ * Our shell. See README
  */
-char *convert_escaped_chars(char *cmd) {
+int main(int argc, char*argv[]) {
+  // Code which sets stdout to be unbuffered
+  // This is necessary for testing; do not change these lines
+  USE(argc);
+  USE(argv);
+  setvbuf(stdout, NULL, _IONBF, 0); 
   
-  // Allocate 128 bytes for the new cmd
-  int len = strlen(cmd) + 1;
-  char *new_cmd = calloc(len, sizeof(char));
+  char *username = getenv("USER");
+  char hostname[128];
+  gethostname(hostname, 128);
 
-  // Indices for parsing cmd (i) & new_cmd (j)
-  unsigned int i = 0;
-  unsigned int j = 0;
+  int MAXARGS = 150;
+  char *childargv[MAXARGS];
+  int childargc = 0;
 
-  // Escaped char/regular char to be added to new_cmd 
-  char c;
+  // Main loop that reads a command and executes it
+  while (1) {
+    // Always free whatever values may still be in childargc
+    free_args(childargc, childargv);
 
-  // Parse raw command string and look for escape characters
-  while(cmd[i] != '\0'){ 
-    c = cmd[i];
-    if(c == '\t') // just treat tabs as spaces
-      c = ' ';
-    // If escape character is found
-    if(c == '\\'){
-      switch(cmd[i+1]){
-	case '\\':
-	  c = '\\';
-	  i++;
-	  break;
-	case ' ':
-	  c = '\\';  // need to keep in this char for when splitting cmd into arg array
-	  break;
-	case 't':
-	  c = '\t';
-	  i++;
-	  break;
-	case '&':
-	  c = '&';
-	  i++;
-	  break;
-	// If it was none of these, return NULL (error)
-        default:
-	  free(new_cmd);
-	  return NULL;
-	  break;
-      }
+    // print current directoy
+    char cur_dir[100];
+    getcwd(cur_dir, 100);
+    printf("%s@%s:%s> ", username, hostname, cur_dir);
+
+    // Get User Input
+    childargc = get_user_input(childargv);
+
+    // From user the given user input, exit, print an error, or execute
+    if ( childargc > 0 && strcmp(childargv[0], "exit") == 0){
+      do_exit();
     }
-    // Add c to new_cmd
-    new_cmd[j++] = c;
-    i++;
+    else if ( childargc == -1 ){
+      printf("Error: Unrecognized escape sequence.\n");
+    }
+    else if ( childargc == -2 ){
+      printf("Error: Invalid syntax.\n");
+    }
+    else{
+      execute(childargc, childargv);
+    }
+
+    if (feof(stdin))
+      do_exit();
   }
 
-  new_cmd[j] = '\0';
-  return new_cmd; 
-}  
-
-/**
- * Takes a string and the index of that string pointing to an argument.
- * Parses until a space, newline, or null byte, then returns that argument.
- */
-char *get_argument(char *cmd, int i){
-  
-  unsigned int curr_len = 512;		// Size for the receiving array
-  char *arg = malloc(curr_len);       // Allocating 128bytes for receiving array
-  
-  char c;
-
-  unsigned int j = 0; 			// Index for the receiving array
- 
-  // Parse the command string until a space or NULL is reached
-  while(cmd[i] != ' ' && cmd[i] != '\0')
-  { 
-    // If there is an escaped space, store it and increment an extra time
-    if(cmd[i] == '\\' && cmd[i+1] == ' ')
-    {
-	c = ' ';
-	i++;    
-	ESC_SPACES++;
-    }
-    else
-	c = cmd[i];
-    // Store the string in the return array
-    arg[j++] = c;
-    // Check if arg has reached the end of allocated space
-    if(j == curr_len)
-    {
-	curr_len += 512;
-	arg = realloc(arg, curr_len);
-    }
-    i++;
-  
-  }
-  
-  if( arg[j-1] == '\n')
-    j--;
-  arg[j] = '\0';
-    
-  return arg;
-}
-
-
-/**
- * This checks the values of the next two arguments after an IO
- * redirection to test if the syntax is valid. To be valid, the next
- * argument CANNOT be NULL, &, <, >, or 2>. Additionally the argument
- * after that MUST be NULL, &, <, >, or 2>.
- *
- * Returns 0 if valid, -1 otherwise.
- */
-int valid_next_two_args(char *arg1, char *arg2){
-  // Test if the first argument is invalid
-  if ( ( arg1 == NULL ) ||
-       ( strcmp(arg1, "&") == 0 ) || ( strcmp(arg1, "<") == 0 ) ||
-       ( strcmp(arg1, ">") == 0 ) || ( strcmp(arg1, "2>") == 0 ))
-    return -1;
-
-  // test if the second argument is valid
-  if ( (arg2 == NULL ) || 
-       ( strcmp(arg2, "&") == 0 ) || ( strcmp(arg2, "<") == 0 ) ||
-       ( strcmp(arg2, ">") == 0 ) || ( strcmp(arg2, "2>") == 0 ) )
-    return 0;
-
-  // otherwise return 'invalid'
-  return -1;
-}
-
-/**
- * Tests the given array of arguments to see if this should throw an
- * "Invalid syntax" error.
- *
- * The only invalid commands we are concerned with are 1) arguments
- * after an '&', 2) arguments after IO redirections other than '&', 3)
- * IO redirects without a corresponding file argument and 4) setting
- * any redirect more that once.
- *
- * Returns 0 for valid, -1 otherwise
- */
-int test_if_valid_syntax(int argc, char *argv[]){
-
-  // if any of these aguments is found twice, invalid command
-  int in = 0; // stdin (<) 
-  int out = 0; // stdout (>) 
-  int err = 0; // stderr (2>)
-
-  int i;
-  for (i = 0; i < argc; i++){
-    char *arg = argv[i];
-    if ( strcmp(arg, "&") == 0){
-      // & must be the last argument
-      if( argv[i+1] == NULL )
-	return 0;
-      return -1;
-    }
-    if ( strcmp(arg, "<") == 0){
-      if(in)
-	return -1;  // another < command was already found
-      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
-	return -1;
-      in = 1;
-    }
-    if ( strcmp(arg, ">") == 0){
-      if(out)
-	return -1;  // another > command was already found
-      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
-	return -1;
-      out = 1;
-    }
-    if ( strcmp(arg, "2>") == 0){
-      if(err)
-	return -1;  // another 2> command was already found
-      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
-	return -1;
-      out = 1;
-    }
-  }
   return 0;
 }
 
@@ -211,7 +87,7 @@ int test_if_valid_syntax(int argc, char *argv[]){
  * Returns -1 for an invalid escape sequence error.
  * Returns -2 for an invalid syntax error
  */
-int get_args(char *argv[]){
+int get_user_input(char *argv[]){
     
   // create a buffer for raw user input
   unsigned int curr_len = 128;
@@ -287,15 +163,193 @@ int get_args(char *argv[]){
   return arg_num;
 }
 
+
 /**
- * Before each user command is executed, free the malloced arguments
- * from the previous user command.
+ * Takes the raw user input and converts escape sequences to their
+ * intended values. This is the first step of input processing.
+ *
+ * Escaped spaces are not altered here, but are left as the two chars
+ * '\' and ' '. This is because they are more easily handled later
+ * when spliting this string into an array of arguments.
+ *
+ * Returns a malloced char* on success.
+ *
+ * Returns NULL pointer for invalid escape characters.
  */
-void free_args(int childargc, char *childargv[]){
-  int i;
-  for (i = 0; i < childargc; i++){
-    free(childargv[i]);
+char *convert_escaped_chars(char *cmd) {
+  
+  // Allocate 128 bytes for the new cmd
+  int len = strlen(cmd) + 1;
+  char *new_cmd = calloc(len, sizeof(char));
+
+  // Indices for parsing cmd (i) & new_cmd (j)
+  unsigned int i = 0;
+  unsigned int j = 0;
+
+  // Escaped char/regular char to be added to new_cmd 
+  char c;
+
+  // Parse raw command string and look for escape characters
+  while(cmd[i] != '\0'){ 
+    c = cmd[i];
+    if(c == '\t') // just treat tabs as spaces
+      c = ' ';
+    // If escape character is found
+    if(c == '\\'){
+      switch(cmd[i+1]){
+	case '\\':
+	  c = '\\';
+	  i++;
+	  break;
+	case ' ':
+	  c = '\\';  // need to keep in this char for when splitting cmd into arg array
+	  break;
+	case 't':
+	  c = '\t';
+	  i++;
+	  break;
+	case '&':
+	  c = '&';
+	  i++;
+	  break;
+	// If it was none of these, return NULL (error)
+        default:
+	  free(new_cmd);
+	  return NULL;
+	  break;
+      }
+    }
+    // Add c to new_cmd
+    new_cmd[j++] = c;
+    i++;
   }
+
+  new_cmd[j] = '\0';
+  return new_cmd; 
+}  
+
+
+/**
+ * Takes a string and the index of that string pointing to an argument.
+ * Parses until a space, newline, or null byte, then returns that argument.
+ */
+char *get_argument(char *cmd, int i){
+  
+  unsigned int curr_len = 512;		// Size for the receiving array
+  char *arg = malloc(curr_len);       // Allocating 128bytes for receiving array
+  
+  char c;
+
+  unsigned int j = 0; 			// Index for the receiving array
+ 
+  // Parse the command string until a space or NULL is reached
+  while(cmd[i] != ' ' && cmd[i] != '\0')
+  { 
+    // If there is an escaped space, store it and increment an extra time
+    if(cmd[i] == '\\' && cmd[i+1] == ' ')
+    {
+	c = ' ';
+	i++;    
+	ESC_SPACES++;
+    }
+    else
+	c = cmd[i];
+    // Store the string in the return array
+    arg[j++] = c;
+    // Check if arg has reached the end of allocated space
+    if(j == curr_len)
+    {
+	curr_len += 512;
+	arg = realloc(arg, curr_len);
+    }
+    i++;
+  
+  }
+  
+  if( arg[j-1] == '\n')
+    j--;
+  arg[j] = '\0';
+    
+  return arg;
+}
+
+
+/**
+ * Tests the given array of arguments to see if this should throw an
+ * "Invalid syntax" error.
+ *
+ * The only invalid commands we are concerned with are 1) arguments
+ * after an '&', 2) arguments after IO redirections other than '&', 3)
+ * IO redirects without a corresponding file argument and 4) setting
+ * any redirect more that once.
+ *
+ * Returns 0 for valid, -1 otherwise
+ */
+int test_if_valid_syntax(int argc, char *argv[]){
+
+  // if any of these aguments is found twice, invalid command
+  int in = 0; // stdin (<) 
+  int out = 0; // stdout (>) 
+  int err = 0; // stderr (2>)
+
+  int i;
+  for (i = 0; i < argc; i++){
+    char *arg = argv[i];
+    if ( strcmp(arg, "&") == 0){
+      // & must be the last argument
+      if( argv[i+1] == NULL )
+	return 0;
+      return -1;
+    }
+    if ( strcmp(arg, "<") == 0){
+      if(in)
+	return -1;  // another < command was already found
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      in = 1;
+    }
+    if ( strcmp(arg, ">") == 0){
+      if(out)
+	return -1;  // another > command was already found
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      out = 1;
+    }
+    if ( strcmp(arg, "2>") == 0){
+      if(err)
+	return -1;  // another 2> command was already found
+      if ( valid_next_two_args(argv[i+1], argv[i+2]) == -1)
+	return -1;
+      out = 1;
+    }
+  }
+  return 0;
+}
+
+
+/**
+ * This checks the values of the next two arguments after an IO
+ * redirection to test if the syntax is valid. To be valid, the next
+ * argument CANNOT be NULL, &, <, >, or 2>. Additionally the argument
+ * after that MUST be NULL, &, <, >, or 2>.
+ *
+ * Returns 0 if valid, -1 otherwise.
+ */
+int valid_next_two_args(char *arg1, char *arg2){
+  // Test if the first argument is invalid
+  if ( ( arg1 == NULL ) ||
+       ( strcmp(arg1, "&") == 0 ) || ( strcmp(arg1, "<") == 0 ) ||
+       ( strcmp(arg1, ">") == 0 ) || ( strcmp(arg1, "2>") == 0 ))
+    return -1;
+
+  // test if the second argument is valid
+  if ( (arg2 == NULL ) || 
+       ( strcmp(arg2, "&") == 0 ) || ( strcmp(arg2, "<") == 0 ) ||
+       ( strcmp(arg2, ">") == 0 ) || ( strcmp(arg2, "2>") == 0 ) )
+    return 0;
+
+  // otherwise return 'invalid'
+  return -1;
 }
 
 
@@ -407,54 +461,15 @@ void execute(int childargc, char *childargv[]){
   return;
 }
 
-
-int main(int argc, char*argv[]) {
-  // Code which sets stdout to be unbuffered
-  // This is necessary for testing; do not change these lines
-  USE(argc);
-  USE(argv);
-  setvbuf(stdout, NULL, _IONBF, 0); 
-  
-  char *username = getenv("USER");
-  char hostname[128];
-  gethostname(hostname, 128);
-
-  int MAXARGS = 150;
-  char *childargv[MAXARGS];
-  int childargc = 0;
-
-  // Main loop that reads a command and executes it
-  while (1) {
-    // Always free whatever values may still be in childargc
-    free_args(childargc, childargv);
-
-    // print current directoy
-    char cur_dir[100];
-    getcwd(cur_dir, 100);
-    printf("%s@%s:%s> ", username, hostname, cur_dir);
-
-    // Get User Input
-    childargc = get_args(childargv);
-
-    // From user the given user input, exit, print an error, or execute
-    if ( childargc > 0 && strcmp(childargv[0], "exit") == 0){
-      do_exit();
-    }
-    else if ( childargc == -1 ){
-      printf("Error: Unrecognized escape sequence.\n");
-    }
-    else if ( childargc == -2 ){
-      printf("Error: Invalid syntax.\n");
-    }
-    else{
-      execute(childargc, childargv);
-    }
-
-    if (feof(stdin))
-      do_exit();
+/**
+ * Before each user command is executed, free the malloced arguments
+ * from the previous user command.
+ */
+void free_args(int childargc, char *childargv[]){
+  int i;
+  for (i = 0; i < childargc; i++){
+    free(childargv[i]);
   }
-
-  return 0;
 }
 
 // Function which exits, printing the necessary message
