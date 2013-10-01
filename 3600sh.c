@@ -374,22 +374,26 @@ int setup_io_redirects(int childargc, char *childargv[]){
   int num_of_redirects = 0;
   int i;
   for(i = 0; i < childargc; i++){
+    FILE *f;
     if(strcmp(childargv[i], "<") == 0){
       char *path = childargv[i+1];
-      if (freopen(path, "r", stdin) == NULL)
-	return -1;
+      f = freopen(path, "r", stdin);
+      if (f == NULL)
+        return -1;
       num_of_redirects++;
     }
     else if(strcmp(childargv[i], ">") == 0){
       char *path = childargv[i+1];
-      if (freopen(path, "w", stdout) == NULL)
-	return -1;
+      f = freopen(path, "r", stdin);
+      if (f == NULL)
+        return -1;
       num_of_redirects++;
     }
     else if(strcmp(childargv[i], "2>") == 0){
       char *path = childargv[i+1];
-      if (freopen(path, "w", stderr) == NULL)
-	return -1;
+      f = freopen(path, "r", stdin);
+      if (f == NULL)
+        return -1;
       num_of_redirects++;
     }
   }
