@@ -384,14 +384,15 @@ int setup_io_redirects(int childargc, char *childargv[]){
     }
     else if(strcmp(childargv[i], ">") == 0){
       char *path = childargv[i+1];
-      f = freopen(path, "r", stdin);
+      close(1);
+      f = fopen(path, "w");
       if (f == NULL)
         return -1;
       num_of_redirects++;
     }
     else if(strcmp(childargv[i], "2>") == 0){
       char *path = childargv[i+1];
-      f = freopen(path, "r", stdin);
+      f = freopen(path, "w", stderr);
       if (f == NULL)
         return -1;
       num_of_redirects++;
@@ -437,9 +438,8 @@ void execute(int childargc, char *childargv[]){
     orig_stderr = dup(2);
 
     if( setup_io_redirects(childargc, childargv) == -1){
-      dup2(orig_stdin, 0);
+      close(1);
       dup2(orig_stdout, 1);
-      dup2(orig_stderr, 2);    
       printf("Error: Unable to open redirection file.\n");
       exit(1);
     }
