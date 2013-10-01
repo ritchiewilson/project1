@@ -1,1 +1,25 @@
-Shell
+itchie Wilson & Ryan Strassberger (FATstacks)
+Project 1: Unix Shell
+Systems and Networks
+CS3600 Fall 2013
+September 30, 2013
+
+Approach
+
+        When the shell is executed, it firsts gets the username and hostname from the computer and initializes the array and counter for the child process' arguments. The program then enters the main loop. First, the shell parses the child's array of arguments, freeing each element and leaving a clean array for the next user input. It then grabs the current directory path and prints the prompt containing the current directory, username, and hostname.
+        Next, the shell gets user input using getchar() and stores it in a malloc'd string. After the return key or EOF is passed in, the shell begins to parse and format the input. It first checks or any escape characters and replaces them if found. Then, it checks for valid syntax, making sure the background character (&) has nothing after it, and making sure the IO redirection symbols (<, >, 2>) are in the appropriate positions. If there are any unrecognized escape sequences or any invalid syntax, an integer representing that error will be stored in the child argument counter.
+        After getting input from the user, the shell checks to see if it has received the exit command. If so, exit using the do_exit() command. It then checks the argument counter to see if any errors where found when parsing/formatting the input. If so, it prints the appropriate error message and exits. Otherwise, the input is good and the shell prepares to execute.
+        To execute, the shell first forks a child process. After which, it checks to see if it is in the child process or the parent process. If it is in the child process, the shell check the arguments for the background process character. If the character is found, it is deleted and replaced with NULL (it will be handled by the parent process). Next, the shell makes copied of the original file descriptors in case of an error. It then sets up any I/O redirects. If unsuccessful (likely due to a permissions error), the shell restores the original file descriptors, prints the appropriate error message and exits. Otherwise, it executes the command with execvp(). If execvp fails, the shell restores the original I/Os, prints the appropriate error and exits.
+        If the shell is in the parent process after the fork, it checks for the background process flag. If it finds the flag, the shell waits for the child process to finish before returning to the loop. Otherwise, it returns immediately. After executing, the shell checks if stdin reached the EOF. If it has, the shell exits. If not, the shell reenters the main loop.
+
+Challenges Faced
+
+        Proper memory management proved to be a major challenge during this assignment, particularly when it came to handling input of arbitrary length. In the early stages of the assignment, we allocated an array of fixed size (30) for the arguments. Upon learning that we had to handle much longer input, we faced the more difficult task of malloc'ing and freeing memory to store that input. Our solution was to start with and char array of a fixed length, and while receiving input, check to see if the array was full (i.e. the pointer had reached the end of the array). If so, we would realloc memory to the array and continue.
+
+Good Properties of Our Design
+
+	A nice feature of our design is parsing and preprocessing the input. That is, rather than handling escape characters and other special characters (background/IO redirection) at the time of input, we wait for the entire string to be stored, then parse and format that string. Though it is less efficient, this implementation is more reliable and is easier to test and understand.
+
+Overview of Testing
+
+        To test our shell, we ran it against the milestone/final tests provided. We also created a file to test the background process called "slow.c". For debugging, we used GDB, and for checking memory management, we used Valgrind.
